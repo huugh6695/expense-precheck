@@ -31,6 +31,17 @@ class RequiredAttachmentRuleTest {
                 List.of(new Facts.LineItem("费用", new BigDecimal("1000.00"))));
     }
 
+    /** 可以指定起止日期和例外声明的版本。 */
+    private Facts facts(LocalDate start, LocalDate end, String reason,
+                        List<Facts.Attachment> attachments, List<Facts.Exemption> exemptions) {
+        return new Facts(
+                new Facts.ApplicationInfo("REIMBURSE", "张三", new BigDecimal("1000.00"),
+                        reason, start, end, "差旅"),
+                attachments,
+                List.of(new Facts.LineItem("费用", new BigDecimal("1000.00"))),
+                exemptions);
+    }
+
     private Facts.Attachment travel() {
         return new Facts.Attachment("a1", Facts.Attachment.KIND_TRAVEL, new BigDecimal("450.00"),
                 LocalDate.of(2026, 10, 12), "NO001", "东方航空", "机票.pdf", "*运输服务*客运服务费");
@@ -114,5 +125,70 @@ class RequiredAttachmentRuleTest {
 
         assertTrue(configured.check(facts("差旅", List.of(invoice))).isEmpty(),
                 "改了配置就不该再要求交通票和住宿票");
+    }
+
+    // ========== 以下是"缺票但不该机械卡人"的四个用例 ==========
+
+    @Test
+    @DisplayName("当天往返（起止同一天）缺住宿票：不阻断，只留一条提示")
+    void sameDayTripShouldNotBlock() {
+        List<Finding> findings = rule.check(facts(
+                LocalDate.of(2026, 10, 12), LocalDate.of(2026, 10, 12),
+                "赴南京当天往返",
+                List.of(travel()), List.of()));
+
+        assertEquals(1, findings.size(), "只该有一条提示，实际：" + findings);
+        assertEquals(Level.INFO, findings.get(0).level(), "日期算得出来的事不该阻断");
+        assertTrue(findings.get(0).message().contains("当天往返"), "实际：" + findings.get(0).message());
+        assertTrue(findings.get(0).suggestion().contains("改正起止日期"),
+                "要告诉员工理解错了怎么改，实际：" + findings.get(0).suggestion());
+    }
+
+    @Test
+    @DisplayName("跨天缺住宿票但声明了原因和情况：降为建议核对，不再阻断")
+    void crossDayWithExemptionShouldDowngrade() {
+        Facts.Exemption ex = new Facts.Exemption(Facts.Attachment.KIND_HOTEL,
+                Facts.Exemption.CODE_CLIENT_ARRANGED, "客户方统一安排酒店，未走我方账户");
+
+        List<Finding> findings = rule.check(facts(
+                LocalDate.of(2026, 10, 12), LocalDate.of(2026, 10, 14),
+                "赴杭州参加评审会",
+                List.of(travel()), List.of(ex)));
+
+        assertEquals(1, findings.size(), "实际：" + findings);
+        assertEquals(Level.WARN, findings.get(0).level(), "有声明就该降级，不该继续阻断");
+        assertTrue(findings.get(0).message().contains("住宿由客户"), "实际：" + findings.get(0).message());
+        assertTrue(findings.get(0).evidence().contains("未走我方账户"),
+                "证据里要带上员工的原话，审批人才能核实，实际：" + findings.get(0).evidence());
+    }
+
+    @Test
+    @DisplayName("只选了原因没写说明：声明不成立，仍然阻断并告诉他还差什么")
+    void exemptionWithoutNoteShouldStillBlock() {
+        Facts.Exemption ex = new Facts.Exemption(Facts.Attachment.KIND_HOTEL,
+                Facts.Exemption.CODE_CLIENT_ARRANGED, "   ");
+
+        List<Finding> findings = rule.check(facts(
+                LocalDate.of(2026, 10, 12), LocalDate.of(2026, 10, 14),
+                "赴杭州参加评审会",
+                List.of(travel()), List.of(ex)));
+
+        assertEquals(1, findings.size(), "实际：" + findings);
+        assertEquals(Level.BLOCK, findings.get(0).level(), "不写字就不算声明");
+        assertTrue(findings.get(0).suggestion().contains("没填写说明"),
+                "要明确指出差在哪，实际：" + findings.get(0).suggestion());
+    }
+
+    @Test
+    @DisplayName("事由里写「当天往返」但日期是跨天：照样阻断，话术骗不过去")
+    void keywordInReasonShouldNotBypass() {
+        List<Finding> findings = rule.check(facts(
+                LocalDate.of(2026, 10, 12), LocalDate.of(2026, 10, 14),
+                "当天往返，无需住宿",
+                List.of(travel()), List.of()));
+
+        assertEquals(1, findings.size(), "实际：" + findings);
+        assertEquals(Level.BLOCK, findings.get(0).level(),
+                "规则只看日期和结构化声明，不读事由里的关键词——否则等于教员工写话术");
     }
 }

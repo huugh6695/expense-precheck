@@ -87,6 +87,9 @@ public class PrecheckService {
         Facts facts = new Facts(toApplicationInfo(req), attachments,
                 req.lineItems().stream()
                         .map(li -> new Facts.LineItem(li.desc(), li.amount()))
+                        .toList(),
+                req.exemptions().stream()
+                        .map(e -> new Facts.Exemption(e.kind(), e.code(), e.note()))
                         .toList());
 
         return toResponse(engine.run(facts), views, parseWarnings);

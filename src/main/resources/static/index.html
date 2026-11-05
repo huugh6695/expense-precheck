@@ -132,7 +132,7 @@
       </div>
       <div>
         <label>费用类别</label>
-        <select id="category">
+        <select id="category" onchange="syncExemption()">
           <option>差旅</option>
           <option>办公</option>
           <option>招待</option>
@@ -145,16 +145,34 @@
       </div>
       <div>
         <label>费用发生起始日</label>
-        <input id="startDate" type="date">
+        <input id="startDate" type="date" onchange="syncExemption()">
       </div>
       <div>
         <label>费用发生截止日</label>
-        <input id="endDate" type="date">
+        <input id="endDate" type="date" onchange="syncExemption()">
       </div>
     </div>
     <div style="margin-top:12px">
       <label>申请事由</label>
       <input id="reason" placeholder="例如：赴杭州参加供应商年度评审会议">
+    </div>
+    <div id="exemptionBox" style="margin-top:12px; display:none">
+      <label>票据例外说明（差旅确实没有住宿票时填，填了这项不再阻断）</label>
+      <div class="grid">
+        <div>
+          <select id="exemptionCode">
+            <option value="">— 不填（我会补住宿票）—</option>
+            <option value="SAME_DAY">当天往返，未住宿</option>
+            <option value="CLIENT_ARRANGED">住宿由客户/对方安排</option>
+            <option value="SELF_DRIVE">自驾，未产生住宿费</option>
+            <option value="OTHER">其他原因</option>
+          </select>
+        </div>
+        <div>
+          <input id="exemptionNote" placeholder="情况说明（必填，例如：当天高铁往返，未住宿）">
+        </div>
+      </div>
+      <div id="exemptionTip" style="margin-top:6px;font-size:12px;opacity:.72"></div>
     </div>
   </section>
 
@@ -254,17 +272,57 @@ function collectPayload() {
     }
   });
 
+  const category = document.getElementById('category').value;
+  const exemptionCode = document.getElementById('exemptionCode').value;
+  const exemptionNote = document.getElementById('exemptionNote').value.trim();
+
+  // 例外只对差旅的住宿票有意义：选了原因才发，没选就不发（后端按"没有声明"处理）
+  const exemptions = (category === '差旅' && exemptionCode !== '')
+    ? [{ kind: 'HOTEL', code: exemptionCode, note: exemptionNote || null }]
+    : [];
+
   return {
     type: document.getElementById('type').value,
     applicant: document.getElementById('applicant').value.trim() || null,
     declaredAmount: numberOrNull(document.getElementById('declaredAmount').value),
     reason: document.getElementById('reason').value.trim() || null,
-    category: document.getElementById('category').value,
+    category: category,
     startDate: document.getElementById('startDate').value || null,
     endDate: document.getElementById('endDate').value || null,
     lineItems: lineItems,
-    overrides: overrides
+    overrides: overrides,
+    exemptions: exemptions
   };
+}
+
+/**
+ * 差旅才显示「票据例外说明」，并按起止日期提示系统会怎么判断。
+ *
+ * 这里的提示必须和后台规则一致：同一天 ⇒ 系统自动当当天往返，不用填；
+ * 跨天 ⇒ 正常要住宿票，确实没有才需要选原因。
+ * 前端说一套、后端判一套，比不给提示还误导人。
+ */
+function syncExemption() {
+  const isTravel = document.getElementById('category').value === '差旅';
+  const box = document.getElementById('exemptionBox');
+  box.style.display = isTravel ? '' : 'none';
+
+  if (!isTravel) {
+    document.getElementById('exemptionCode').value = '';
+    document.getElementById('exemptionNote').value = '';
+    return;
+  }
+
+  const start = document.getElementById('startDate').value;
+  const end = document.getElementById('endDate').value;
+  const tip = document.getElementById('exemptionTip');
+  if (start && end && start === end) {
+    tip.textContent = '起止日期是同一天，系统会按「当天往返」处理，这一栏不用填。';
+  } else if (start && end) {
+    tip.textContent = '这次是跨天出差，正常需要住宿票；确实没有住宿票，才选原因并写清情况。';
+  } else {
+    tip.textContent = '先填起止日期，系统会自己判断是不是当天往返。';
+  }
 }
 
 async function runPrecheck() {
@@ -313,6 +371,7 @@ function fillSampleForm() {
   document.getElementById('lineItems').innerHTML = '';
   addLineItem('机票（杭州往返）', '450.00');
   addLineItem('住宿（两晚）', '680.00');
+  syncExemption();
 }
 
 const LEVEL_LABEL = { BLOCK: '必须补', WARN: '建议核对', INFO: '提示' };
@@ -382,6 +441,7 @@ function render(data) {
 }
 
 addLineItem();
+syncExemption();
 </script>
 </body>
 </html>

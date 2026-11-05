@@ -12,6 +12,8 @@ import java.util.List;
  *
  * @param overrides 手工修正的金额。员工看到某张发票没识别出来，可以在页面上直接填，
  *                  这是"解析失败也不能堵死流程"的兜底通道。
+ * @param exemptions 例外声明。目前只用于"差旅缺住宿票"：员工选了原因并写明情况，
+ *                   这条必票要求就从"阻断"降为"建议核对"。见 Facts.Exemption。
  */
 public record PrecheckRequest(
         String type,
@@ -22,12 +24,14 @@ public record PrecheckRequest(
         LocalDate startDate,
         LocalDate endDate,
         List<LineItemReq> lineItems,
-        List<FileOverride> overrides
+        List<FileOverride> overrides,
+        List<ExemptionReq> exemptions
 ) {
 
     public PrecheckRequest {
         lineItems = (lineItems == null) ? List.of() : List.copyOf(lineItems);
         overrides = (overrides == null) ? List.of() : List.copyOf(overrides);
+        exemptions = (exemptions == null) ? List.of() : List.copyOf(exemptions);
     }
 
     /** 一条费用明细。 */
@@ -36,5 +40,9 @@ public record PrecheckRequest(
 
     /** 手工修正：文件名 → 金额。 */
     public record FileOverride(String fileName, BigDecimal amount) {
+    }
+
+    /** 例外声明：对哪类票据（kind）、什么原因（code）、怎么解释（note）。 */
+    public record ExemptionReq(String kind, String code, String note) {
     }
 }

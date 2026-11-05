@@ -39,4 +39,14 @@ public record Finding(
     public static Finding info(String ruleId, String field, String message, String evidence) {
         return new Finding(ruleId, Level.INFO, field, message, evidence, null, Source.RULE);
     }
+
+    /**
+     * 带建议的提示。
+     *
+     * <p>有些提示不是"你有问题"，而是"系统按这个理解处理了你的材料"，
+     * 这种情况下更需要告诉员工"如果理解错了该怎么改"，否则他不知道系统在想什么。
+     */
+    public static Finding info(String ruleId, String field, String message, String evidence, String suggestion) {
+        return new Finding(ruleId, Level.INFO, field, message, evidence, suggestion, Source.RULE);
+    }
 }

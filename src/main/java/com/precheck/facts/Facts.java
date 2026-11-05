@@ -16,17 +16,78 @@ import java.util.List;
  * </ol>
  *
  * <p>用 record 是因为它天生不可变：检查规则只读不写，谁也别想偷偷改事实。
- * 三个 List 在构造时兜底成空集合，后面的规则就不用到处判 null 了。
+ * 各 List 在构造时兜底成空集合，后面的规则就不用到处判 null 了。
  */
 public record Facts(
         ApplicationInfo application,
         List<Attachment> attachments,
-        List<LineItem> lineItems
+        List<LineItem> lineItems,
+        List<Exemption> exemptions
 ) {
 
     public Facts {
         attachments = (attachments == null) ? List.of() : List.copyOf(attachments);
         lineItems = (lineItems == null) ? List.of() : List.copyOf(lineItems);
+        exemptions = (exemptions == null) ? List.of() : List.copyOf(exemptions);
+    }
+
+    /**
+     * 不带例外声明的便捷构造。绝大多数调用方（尤其是单测）都只需要事实本身，
+     * 有这个重载，加"例外"字段就不用去改一堆已有的构造调用。
+     */
+    public Facts(ApplicationInfo application, List<Attachment> attachments, List<LineItem> lineItems) {
+        this(application, attachments, lineItems, List.of());
+    }
+
+    /**
+     * 员工的「例外声明」——用来把某条必票要求从"阻断"降级为"建议核对"。
+     *
+     * <p>为什么需要它：差旅必须交住宿票这条规则，遇到"当天往返"就变成了机械卡人。
+     * 但<b>不能靠读事由里的文字来判断</b>——那等于教员工写一句万金油话术绕过检查。
+     * 所以例外必须是一条<b>结构化、明确、可追责</b>的声明：选了原因，还要写清楚为什么。
+     *
+     * <p>注意分工：能靠日期算出来的（起止同一天＝当天往返）根本不该问员工，
+     * 那种情况由规则自己判断、直接放行；这个 record 只处理"算不出来的"。
+     *
+     * @param kind 对哪类票据作声明：HOTEL / TRAVEL …
+     * @param code 原因代码：SAME_DAY / CLIENT_ARRANGED / SELF_DRIVE / OTHER
+     * @param note 文字说明，必填——说不出理由的声明不算声明
+     */
+    public record Exemption(String kind, String code, String note) {
+
+        /** 当天往返，本来就不该有住宿 */
+        public static final String CODE_SAME_DAY = "SAME_DAY";
+        /** 住宿由客户/对方单位安排，没有自己的发票 */
+        public static final String CODE_CLIENT_ARRANGED = "CLIENT_ARRANGED";
+        /** 自驾，未产生住宿费 */
+        public static final String CODE_SELF_DRIVE = "SELF_DRIVE";
+        /** 其他原因 */
+        public static final String CODE_OTHER = "OTHER";
+
+        /** 原因代码对应的中文说明；认不出的代码返回 null。 */
+        public String label() {
+            if (code == null) {
+                return null;
+            }
+            return switch (code.trim().toUpperCase()) {
+                case CODE_SAME_DAY -> "当天往返，未住宿";
+                case CODE_CLIENT_ARRANGED -> "住宿由客户/对方安排";
+                case CODE_SELF_DRIVE -> "自驾，未产生住宿费";
+                case CODE_OTHER -> "其他原因";
+                default -> null;
+            };
+        }
+
+        /**
+         * 这条声明是否成立：原因能认出来，而且写了说明。
+         *
+         * <p>只勾个下拉不写字，等于"我不解释"，不能拿来换掉一条阻断项。
+         */
+        public boolean usable() {
+            return kind != null && !kind.isBlank()
+                    && label() != null
+                    && note != null && !note.isBlank();
+        }
     }
 
     /**
