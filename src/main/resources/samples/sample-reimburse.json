@@ -1,0 +1,47 @@
+{
+  "application": {
+    "type": "REIMBURSE",
+    "applicant": "张三",
+    "declaredAmount": 1130.00,
+    "reason": "赴杭州参加供应商年度评审会议",
+    "startDate": "2026-10-12",
+    "endDate": "2026-10-14",
+    "category": "差旅"
+  },
+  "attachments": [
+    {
+      "id": "a1",
+      "kind": "TRAVEL",
+      "amount": 450.00,
+      "date": "2026-10-12",
+      "invoiceNo": "25310000000012345678",
+      "seller": "东方航空股份有限公司",
+      "fileName": "机票_1012.pdf",
+      "itemSummary": "*运输服务*客运服务费"
+    },
+    {
+      "id": "a2",
+      "kind": "HOTEL",
+      "amount": 700.00,
+      "date": "2026-10-13",
+      "invoiceNo": "25310000000087654321",
+      "seller": "杭州西溪某某酒店",
+      "fileName": "住宿_1013.pdf",
+      "itemSummary": "*住宿服务*住宿费"
+    },
+    {
+      "id": "a3",
+      "kind": "TRAVEL",
+      "amount": 450.00,
+      "date": "2026-10-12",
+      "invoiceNo": "25310000000012345678",
+      "seller": "东方航空股份有限公司",
+      "fileName": "机票_1012_重复上传.pdf",
+      "itemSummary": "*运输服务*客运服务费"
+    }
+  ],
+  "lineItems": [
+    { "desc": "机票（杭州往返）", "amount": 450.00 },
+    { "desc": "住宿（两晚）", "amount": 680.00 }
+  ]
+}

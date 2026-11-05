@@ -14,9 +14,10 @@ target/
 # 本地规则覆盖：放在 jar 同级目录用，各自环境不同，不入库
 /rules.yml
 
-# 真发票样本：含个人信息，只在本机跑测试时用
+# 真发票样本：含个人信息，只在本机跑测试时用（只忽略根目录的，别写成 samples/，
+# 那会把 src/main/resources/samples 和 src/test/resources/samples 一起吞掉）
 src/test/resources/samples/real-invoice.pdf
-samples/
+/samples/
 
 # 系统文件
 .DS_Store

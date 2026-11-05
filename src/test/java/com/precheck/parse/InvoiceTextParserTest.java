@@ -36,12 +36,12 @@ class InvoiceTextParserTest {
     void shouldParseRealInvoiceText() throws IOException {
         ParsedInvoiceFields f = parser.parse(read("invoice-text-1.txt"));
 
-        assertEquals("26942000000996952231", f.invoiceNo());
+        assertEquals("26942000000996000001", f.invoiceNo());
         assertEquals(LocalDate.of(2026, 9, 5), f.date());
         // 关键：不能抽成 131.86（不含税金额）或 17.14（税额），必须是价税合计 149.00
         assertEquals(0, new BigDecimal("149.00").compareTo(f.amount()));
-        assertEquals("安徽理工大学", f.buyer());
-        assertEquals("厦门天邻缘电子商务有限公司", f.seller());
+        assertEquals("某某大学", f.buyer());
+        assertEquals("某某电子商务有限公司", f.seller());
         // 开票项目：税务局规范写法 *类别*品名
         assertEquals("*鞋*运动鞋", f.itemSummary());
         assertTrue(f.warnings().isEmpty(), "不该有警告，实际：" + f.warnings());
@@ -63,16 +63,29 @@ class InvoiceTextParserTest {
     void shouldFallbackToLargestMoney() {
         String text = """
                 电子发票（普通发票） 发票号码：
-                26942000000996952231
+                26942000000996000001
                 ¥131.86 ¥17.14
                 合 计 ¥131.86 ¥17.14
                 价税合计 ¥149.00
                 """;
         ParsedInvoiceFields f = parser.parse(text);
 
-        assertEquals("26942000000996952231", f.invoiceNo());
+        assertEquals("26942000000996000001", f.invoiceNo());
         assertEquals(0, new BigDecimal("149.00").compareTo(f.amount()));
         assertTrue(f.warnings().stream().anyMatch(w -> w.contains("开票日期")),
                 "日期缺失应给警告，实际：" + f.warnings());
+    }
+
+    @Test
+    @DisplayName("CRLF 换行：\\r 不能粘在字段尾巴上")
+    void shouldNormalizeCrLf() throws IOException {
+        // Windows 上 Git 会把 fixture 检出成 CRLF，不归一的话抽出来会是 "某某大学\r"
+        String crlf = read("invoice-text-1.txt").replace("\r\n", "\n").replace("\n", "\r\n");
+        ParsedInvoiceFields f = parser.parse(crlf);
+
+        assertEquals("某某大学", f.buyer());
+        assertEquals("某某电子商务有限公司", f.seller());
+        assertEquals("26942000000996000001", f.invoiceNo());
+        assertEquals(0, new BigDecimal("149.00").compareTo(f.amount()));
     }
 }

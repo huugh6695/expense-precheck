@@ -60,7 +60,10 @@ public class InvoiceTextParser {
 
     public ParsedInvoiceFields parse(String text) {
         List<String> warnings = new ArrayList<>();
-        String normalized = (text == null) ? "" : text.replace('\u00A0', ' ');
+        // 换行与不换行空格统一：不同 PDF、不同平台抽出来的文本可能带 \r\n 或 \u00A0，
+        // 不归一的话 \r 会粘在抽出来的字段尾巴上（"某某大学\r" != "某某大学"）
+        String normalized = (text == null) ? ""
+                : text.replace("\r\n", "\n").replace('\r', '\n').replace('\u00A0', ' ');
 
         if (normalized.isBlank()) {
             return new ParsedInvoiceFields(null, null, null, null, null, null,
