@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: expense-precheck
+  config:
+    # 规则配置单独放一个文件，并且允许"jar 外面的 rules.yml"覆盖它。
+    # 这样客户想改规则，只要在 jar 同级目录放一个 rules.yml，重启即可，不用重新打包。
+    import:
+      - classpath:rules.yml
+      - optional:file:./rules.yml
+  servlet:
+    multipart:
+      # 发票一般 150KB 左右，但合并成一册的报销材料会大很多，放宽到 20MB
+      max-file-size: 20MB
+      max-request-size: 40MB
+
+server:
+  # 故意不用 8080：你 IDEA 里跑 second-classroom 时占着 8080，撞上就互相打架
+  port: 8090
+
+precheck:
+  ai:
+    # 语义检查开关。false 时只用代码规则，系统照样能跑
+    enabled: true
+    base-url: https://api.deepseek.com
+    model: deepseek-chat
+    # ⚠️ Key 不要写死在这里，用环境变量传：PRECHECK_AI_KEY=sk-xxxx
+    # 没配 Key 也没关系——会自动降级成"只用硬规则"，不会报错
+    api-key: ${PRECHECK_AI_KEY:}
+    timeout-seconds: 20
+

@@ -1,0 +1,27 @@
+# 构建产物
+target/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# 日志
+*.log
+
+# 本地规则覆盖：放在 jar 同级目录用，各自环境不同，不入库
+/rules.yml
+
+# 真发票样本：含个人信息，只在本机跑测试时用
+src/test/resources/samples/real-invoice.pdf
+samples/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 密钥：绝对不要提交
+*.env
+.env

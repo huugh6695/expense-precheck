@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>审批材料预检助手</title>
+<style>
+  :root {
+    --ink: #1d2939;
+    --muted: #667085;
+    --line: #e4e7ec;
+    --bg: #f7f8fa;
+    --card: #ffffff;
+    --danger: #b42318;
+    --danger-bg: #fef3f2;
+    --warn: #b54708;
+    --warn-bg: #fffaeb;
+    --ok: #067647;
+    --ok-bg: #ecfdf3;
+    --info: #475467;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    font-size: 14px; line-height: 1.6;
+  }
+  main { max-width: 880px; margin: 0 auto; padding: 32px 20px 80px; }
+  header h1 { font-size: 22px; margin: 0 0 6px; font-weight: 600; letter-spacing: .3px; }
+  header p { margin: 0 0 24px; color: var(--muted); }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 20px; margin-bottom: 16px;
+  }
+  .card h2 {
+    font-size: 14px; font-weight: 600; margin: 0 0 16px;
+    display: flex; align-items: center; gap: 8px; color: var(--ink);
+  }
+  .card h2 .no {
+    display: inline-flex; width: 20px; height: 20px; border-radius: 50%;
+    background: #eef2f6; color: var(--muted); font-size: 12px;
+    align-items: center; justify-content: center; font-weight: 500;
+  }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  input, select {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--line);
+    border-radius: 8px; font-size: 14px; font-family: inherit; color: var(--ink);
+    background: #fff;
+  }
+  input:focus, select:focus { outline: 2px solid #b2ddff; border-color: #84caff; }
+  .rows { display: grid; gap: 8px; }
+  .row { display: grid; grid-template-columns: 1fr 140px 36px; gap: 8px; align-items: center; }
+  .btn {
+    border: 1px solid var(--line); background: #fff; color: var(--ink);
+    padding: 9px 16px; border-radius: 8px; font-size: 14px; font-family: inherit;
+    cursor: pointer;
+  }
+  .btn:hover { background: #f9fafb; }
+  .btn-primary {
+    background: #1d2939; color: #fff; border-color: #1d2939; font-weight: 500;
+  }
+  .btn-primary:hover { background: #101828; }
+  .btn-primary:disabled { opacity: .5; cursor: default; }
+  .btn-ghost { color: var(--muted); }
+  .btn-mini { padding: 6px 10px; font-size: 12px; }
+  .actions { display: flex; gap: 12px; align-items: center; margin: 20px 0 28px; }
+  .actions .hint { color: var(--muted); font-size: 12px; }
+  .drop {
+    border: 1px dashed #cfd4dc; border-radius: 10px; padding: 18px;
+    text-align: center; color: var(--muted); background: #fcfcfd;
+  }
+  .drop strong { color: var(--ink); font-weight: 500; }
+  .file-list { margin-top: 14px; display: grid; gap: 8px; }
+  .file-item {
+    display: grid; grid-template-columns: 1fr 150px; gap: 10px;
+    align-items: center; padding: 10px 12px; border: 1px solid var(--line);
+    border-radius: 10px; background: #fcfcfd;
+  }
+  .file-item .name { font-size: 13px; word-break: break-all; }
+  .file-item .sub { font-size: 12px; color: var(--muted); }
+  .file-item input { padding: 6px 8px; }
+  #result { display: grid; gap: 12px; }
+  .summary {
+    border-radius: 12px; padding: 14px 16px; font-size: 14px; font-weight: 500;
+    border: 1px solid var(--line); background: #fff;
+  }
+  .summary.pass { background: var(--ok-bg); border-color: #abefc6; color: #054f31; }
+  .summary.bad { background: var(--danger-bg); border-color: #fecdca; color: #7a271a; }
+  .group-title { font-size: 12px; color: var(--muted); margin: 6px 0 0; letter-spacing: .5px; }
+  .finding {
+    background: #fff; border: 1px solid var(--line); border-left-width: 3px;
+    border-radius: 10px; padding: 14px 16px;
+  }
+  .finding.BLOCK { border-left-color: #d92d20; background: var(--danger-bg); }
+  .finding.WARN { border-left-color: #f79009; background: var(--warn-bg); }
+  .finding.INFO { border-left-color: #98a2b3; }
+  .finding .msg { font-weight: 500; margin-bottom: 6px; }
+  .finding .ev { font-size: 12px; color: var(--info); margin-bottom: 6px; }
+  .finding .sug { font-size: 13px; color: var(--ok); }
+  .finding .tag {
+    display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 4px;
+    background: rgba(0,0,0,.05); color: var(--muted); margin-left: 8px; vertical-align: 1px;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  .warn-note { color: var(--warn); font-size: 12px; }
+  .empty { color: var(--muted); text-align: center; padding: 28px; font-size: 13px; }
+  .foot { color: #98a2b3; font-size: 12px; margin-top: 28px; text-align: center; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>审批材料预检助手</h1>
+    <p>提交前先过一遍：材料齐不齐、金额对不对、发票有没有重复。系统不决定能不能报，只保证交上去的材料是齐的。</p>
+  </header>
+
+  <section class="card">
+    <h2><span class="no">1</span>申请单</h2>
+    <div class="grid">
+      <div>
+        <label>申请类型</label>
+        <select id="type">
+          <option value="REIMBURSE">报销</option>
+        </select>
+      </div>
+      <div>
+        <label>申请人</label>
+        <input id="applicant" placeholder="例如：张三">
+      </div>
+      <div>
+        <label>费用类别</label>
+        <select id="category">
+          <option>差旅</option>
+          <option>办公</option>
+          <option>招待</option>
+          <option>其他</option>
+        </select>
+      </div>
+      <div>
+        <label>申报金额（元）</label>
+        <input id="declaredAmount" inputmode="decimal" placeholder="1130.00">
+      </div>
+      <div>
+        <label>费用发生起始日</label>
+        <input id="startDate" type="date">
+      </div>
+      <div>
+        <label>费用发生截止日</label>
+        <input id="endDate" type="date">
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <label>申请事由</label>
+      <input id="reason" placeholder="例如：赴杭州参加供应商年度评审会议">
+    </div>
+  </section>
+
+  <section class="card">
+    <h2><span class="no">2</span>费用明细</h2>
+    <div class="rows" id="lineItems"></div>
+    <div style="margin-top:12px">
+      <button class="btn btn-mini" onclick="addLineItem()">+ 加一条明细</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2><span class="no">3</span>附件（电子发票 PDF）</h2>
+    <div class="drop">
+      <strong>选择或拖入发票 PDF</strong><br>
+      支持多选；只认有文字层的电子发票，拍照件读不出来时可以手工填金额
+    </div>
+    <div style="margin-top:12px">
+      <input type="file" id="fileInput" accept="application/pdf" multiple>
+    </div>
+    <div class="file-list" id="fileList"></div>
+  </section>
+
+  <div class="actions">
+    <button class="btn btn-primary" id="submitBtn" onclick="runPrecheck()">开始预检</button>
+    <button class="btn btn-ghost" onclick="loadSample()">没有发票？载入样例数据</button>
+    <span class="hint" id="hint"></span>
+  </div>
+
+  <div id="result"><div class="empty">还没有预检。填好上面的信息，点「开始预检」。</div></div>
+
+  <p class="foot">审批材料预检助手 · 只做提交前检查，批准或拒绝始终由人完成</p>
+</main>
+
+<script>
+const state = { files: [] };
+
+function addLineItem(desc = '', amount = '') {
+  const wrap = document.createElement('div');
+  wrap.className = 'row';
+  wrap.innerHTML = `
+    <input class="li-desc" placeholder="明细说明，例如：机票（杭州往返）">
+    <input class="li-amount" inputmode="decimal" placeholder="金额">
+    <button class="btn btn-mini" title="删除">×</button>`;
+  wrap.querySelector('.li-desc').value = desc;
+  wrap.querySelector('.li-amount').value = amount;
+  wrap.querySelector('button').onclick = () => wrap.remove();
+  document.getElementById('lineItems').appendChild(wrap);
+}
+
+function renderFiles() {
+  const box = document.getElementById('fileList');
+  box.innerHTML = '';
+  state.files.forEach((f, i) => {
+    const item = document.createElement('div');
+    item.className = 'file-item';
+    item.innerHTML = `
+      <div>
+        <div class="name"></div>
+        <div class="sub">上传后由系统识别金额；识别不出或识别错了，在这里手工改</div>
+      </div>
+      <input class="manual" inputmode="decimal" placeholder="手工金额（可选）">`;
+    item.querySelector('.name').textContent = f.name;
+    item.querySelector('.manual').dataset.fileName = f.name;
+    box.appendChild(item);
+  });
+}
+
+document.getElementById('fileInput').addEventListener('change', e => {
+  state.files = Array.from(e.target.files);
+  renderFiles();
+});
+
+function numberOrNull(v) {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  if (s === '') return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+function collectPayload() {
+  const lineItems = [];
+  document.querySelectorAll('#lineItems .row').forEach(row => {
+    const desc = row.querySelector('.li-desc').value.trim();
+    const amount = numberOrNull(row.querySelector('.li-amount').value);
+    if (desc !== '' || amount !== null) {
+      lineItems.push({ desc: desc, amount: amount });
+    }
+  });
+
+  const overrides = [];
+  document.querySelectorAll('#fileList .manual').forEach(inp => {
+    const amount = numberOrNull(inp.value);
+    if (amount !== null) {
+      overrides.push({ fileName: inp.dataset.fileName, amount: amount });
+    }
+  });
+
+  return {
+    type: document.getElementById('type').value,
+    applicant: document.getElementById('applicant').value.trim() || null,
+    declaredAmount: numberOrNull(document.getElementById('declaredAmount').value),
+    reason: document.getElementById('reason').value.trim() || null,
+    category: document.getElementById('category').value,
+    startDate: document.getElementById('startDate').value || null,
+    endDate: document.getElementById('endDate').value || null,
+    lineItems: lineItems,
+    overrides: overrides
+  };
+}
+
+async function runPrecheck() {
+  const btn = document.getElementById('submitBtn');
+  const hint = document.getElementById('hint');
+  btn.disabled = true;
+  hint.textContent = '预检中…';
+  try {
+    const fd = new FormData();
+    fd.append('payload', new Blob([JSON.stringify(collectPayload())], { type: 'application/json' }));
+    state.files.forEach(f => fd.append('files', f));
+
+    const res = await fetch('/api/precheck', { method: 'POST', body: fd });
+    if (!res.ok) throw new Error('服务返回 ' + res.status);
+    render(await res.json());
+    hint.textContent = '';
+  } catch (err) {
+    hint.textContent = '预检失败：' + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function loadSample() {
+  const hint = document.getElementById('hint');
+  hint.textContent = '载入样例…';
+  try {
+    const res = await fetch('/api/precheck/sample');
+    if (!res.ok) throw new Error('服务返回 ' + res.status);
+    const data = await res.json();
+    fillSampleForm();
+    render(data);
+    hint.textContent = '';
+  } catch (err) {
+    hint.textContent = '载入样例失败：' + err.message;
+  }
+}
+
+function fillSampleForm() {
+  document.getElementById('applicant').value = '张三';
+  document.getElementById('category').value = '差旅';
+  document.getElementById('declaredAmount').value = '1130.00';
+  document.getElementById('reason').value = '赴杭州参加供应商年度评审会议';
+  document.getElementById('startDate').value = '2026-10-12';
+  document.getElementById('endDate').value = '2026-10-14';
+  document.getElementById('lineItems').innerHTML = '';
+  addLineItem('机票（杭州往返）', '450.00');
+  addLineItem('住宿（两晚）', '680.00');
+}
+
+const LEVEL_LABEL = { BLOCK: '必须补', WARN: '建议核对', INFO: '提示' };
+const KIND_LABEL = { TRAVEL: '交通', HOTEL: '住宿', INVOICE: '发票', OTHER: '未识别' };
+
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined && text !== null) node.textContent = text;
+  return node;
+}
+
+function render(data) {
+  const box = document.getElementById('result');
+  box.innerHTML = '';
+
+  const summary = el('div', 'summary ' + (data.passed ? 'pass' : 'bad'), data.summary);
+  box.appendChild(summary);
+
+  const blocks = data.findings.filter(f => f.level === 'BLOCK');
+  const warns = data.findings.filter(f => f.level === 'WARN');
+  const infos = data.findings.filter(f => f.level === 'INFO');
+
+  const groups = [
+    ['必须补（不补没法审）', blocks],
+    ['建议核对', warns],
+    ['提示', infos]
+  ];
+
+  groups.forEach(([title, list]) => {
+    if (!list.length) return;
+    box.appendChild(el('div', 'group-title', title));
+    list.forEach(f => {
+      const card = el('div', 'finding ' + f.level);
+      const msg = el('div', 'msg', f.message);
+      if (f.source === 'AI') msg.appendChild(el('span', 'tag', 'AI 判断'));
+      card.appendChild(msg);
+      if (f.evidence) card.appendChild(el('div', 'ev', '证据：' + f.evidence));
+      if (f.suggestion) card.appendChild(el('div', 'sug', '怎么改：' + f.suggestion));
+      box.appendChild(card);
+    });
+  });
+
+  if (data.attachments && data.attachments.length) {
+    box.appendChild(el('div', 'group-title', '系统读到的发票'));
+    const table = el('table');
+    table.innerHTML = '<thead><tr><th>文件</th><th>类型</th><th>发票号</th><th>金额</th><th>开票日期</th><th>开票方</th></tr></thead>';
+    const tbody = el('tbody');
+    data.attachments.forEach(a => {
+      const tr = el('tr');
+      tr.appendChild(el('td', null, a.fileName));
+      tr.appendChild(el('td', null, KIND_LABEL[a.kind] || a.kind || '—'));
+      tr.appendChild(el('td', null, a.invoiceNo || '—'));
+      tr.appendChild(el('td', null, a.amount === null ? '未识别' : Number(a.amount).toFixed(2)));
+      tr.appendChild(el('td', null, a.date || '—'));
+      tr.appendChild(el('td', null, a.seller || '—'));
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    box.appendChild(table);
+  }
+
+  if (data.parseWarnings && data.parseWarnings.length) {
+    box.appendChild(el('div', 'group-title', '解析提示'));
+    data.parseWarnings.forEach(w => box.appendChild(el('div', 'warn-note', '· ' + w)));
+  }
+}
+
+addLineItem();
+</script>
+</body>
+</html>
