@@ -73,13 +73,14 @@
   .drop strong { color: var(--ink); font-weight: 500; }
   .file-list { margin-top: 14px; display: grid; gap: 8px; }
   .file-item {
-    display: grid; grid-template-columns: 1fr 150px; gap: 10px;
+    display: grid; grid-template-columns: 1fr; gap: 4px;
     align-items: center; padding: 10px 12px; border: 1px solid var(--line);
     border-radius: 10px; background: #fcfcfd;
   }
   .file-item .name { font-size: 13px; word-break: break-all; }
   .file-item .sub { font-size: 12px; color: var(--muted); }
-  .file-item input { padding: 6px 8px; }
+  /* 手工金额输入框在结果表里，按每一张发票（每一页）填 */
+  table .manual { width: 92px; padding: 4px 6px; font-size: 12px; }
   #result { display: grid; gap: 12px; }
   .summary {
     border-radius: 12px; padding: 14px 16px; font-size: 14px; font-weight: 500;
@@ -226,17 +227,15 @@ function addLineItem(desc = '', amount = '') {
 function renderFiles() {
   const box = document.getElementById('fileList');
   box.innerHTML = '';
-  state.files.forEach((f, i) => {
+  state.files.forEach(f => {
     const item = document.createElement('div');
     item.className = 'file-item';
     item.innerHTML = `
       <div>
         <div class="name"></div>
-        <div class="sub">上传后由系统识别金额；识别不出或识别错了，在这里手工改</div>
-      </div>
-      <input class="manual" inputmode="decimal" placeholder="手工金额（可选）">`;
+        <div class="sub">多页 PDF 会按页拆成多张发票，识别错的金额在下面的结果表里逐张改</div>
+      </div>`;
     item.querySelector('.name').textContent = f.name;
-    item.querySelector('.manual').dataset.fileName = f.name;
     box.appendChild(item);
   });
 }
@@ -264,8 +263,10 @@ function collectPayload() {
     }
   });
 
+  // 手工金额现在按「附件」收集（附件名带页码），因为一个多页 PDF 会拆成好几张发票，
+  // 文件级的输入框说不清它在修哪一页。输入框在结果表里，改完点「重新预检」。
   const overrides = [];
-  document.querySelectorAll('#fileList .manual').forEach(inp => {
+  document.querySelectorAll('#result .manual').forEach(inp => {
     const amount = numberOrNull(inp.value);
     if (amount !== null) {
       overrides.push({ fileName: inp.dataset.fileName, amount: amount });
@@ -416,8 +417,9 @@ function render(data) {
   });
 
   if (data.attachments && data.attachments.length) {
-    box.appendChild(el('div', 'group-title', '系统读到的发票'));    const table = el('table');
-    table.innerHTML = '<thead><tr><th>文件</th><th>类型</th><th>发票号</th><th>金额</th><th>开票日期</th><th>开票方</th></tr></thead>';
+    box.appendChild(el('div', 'group-title', '系统读到的发票'));
+    const table = el('table');
+    table.innerHTML = '<thead><tr><th>文件</th><th>类型</th><th>发票号</th><th>金额</th><th>开票日期</th><th>开票方</th><th>手工修正</th></tr></thead>';
     const tbody = el('tbody');
     data.attachments.forEach(a => {
       const tr = el('tr');
@@ -427,10 +429,32 @@ function render(data) {
       tr.appendChild(el('td', null, a.amount === null ? '未识别' : Number(a.amount).toFixed(2)));
       tr.appendChild(el('td', null, a.date || '—'));
       tr.appendChild(el('td', null, a.seller || '—'));
+
+      // 一张发票一个输入框（多页 PDF 会拆成好几行）。
+      // 已识别出来的先填上，方便直接改；没识别出来的留空提示要填。
+      const fixTd = el('td');
+      const input = document.createElement('input');
+      input.className = 'manual';
+      input.inputMode = 'decimal';
+      input.placeholder = a.amount === null ? '请填金额' : '';
+      input.value = a.amount === null ? '' : Number(a.amount).toFixed(2);
+      input.dataset.fileName = a.fileName;
+      fixTd.appendChild(input);
+      tr.appendChild(fixTd);
+
       tbody.appendChild(tr);
     });
     table.appendChild(tbody);
     box.appendChild(table);
+
+    if (state.files.length) {
+      const row = el('div', 'actions');
+      const again = el('button', 'btn btn-ghost', '改完金额，重新预检');
+      again.onclick = () => runPrecheck();
+      row.appendChild(again);
+      row.appendChild(el('span', 'hint', '每行对应一张发票；多页 PDF 会拆成多行'));
+      box.appendChild(row);
+    }
   }
 
   if (data.parseWarnings && data.parseWarnings.length) {

@@ -28,14 +28,47 @@ import java.util.regex.Pattern;
  * </pre>
  * 所以只能靠"值的形状"去认：20 位纯数字=发票号、年月日的格式=日期、
  * 大写金额后面跟的 ¥ 数字=价税合计。这比找"发票号码："后面的内容可靠得多。
+ *
+ * <p><b>还有一种更恶劣的排版：每个字符占一行。</b>某些开票系统（或"打印成 PDF"）
+ * 会把每个字都输出成独立的文本块，抽出来是这样：
+ * <pre>
+ * 发
+ * 票
+ * 号
+ * 码
+ * ：
+ * 2
+ * 6
+ * 3
+ * 7
+ * ...
+ * </pre>
+ * 这种文本里 {@code \d{20}} 永远匹配不到，日期、金额也全完蛋。
+ * 所以解析前先做一次<b>版面修复</b>：把连续的单字符行拼回一行。
+ * 这不是"锦上添花"——二十页发票里有十九页是这种排版时，它就是能不能用的分界线。
  */
 @Component
 public class InvoiceTextParser {
 
-    /** 全电发票号码是 20 位。 */
-    private static final Pattern INVOICE_NO_20 = Pattern.compile("(?<!\\d)(\\d{20})(?!\\d)");
-    /** 老版发票号码是 8 位。 */
-    private static final Pattern INVOICE_NO_8 = Pattern.compile("(?<!\\d)(\\d{8})(?!\\d)");
+    /** 全电发票号码是 20 位。
+     *
+     * <p>边界必须是"非字母数字"而不是"非数字"：纳税人识别号常常是
+     * {@code 91370100MA3C…}，前 8 位纯数字后面跟个字母，用非数字边界会让它
+     * 通过 8 位发票号的校验，把税号前缀当成发票号——号码一错，查重和合并全乱。
+     */
+    private static final Pattern INVOICE_NO_20 =
+            Pattern.compile("(?<![0-9A-Za-z])(\\d{20})(?![0-9A-Za-z])");
+    /** 老版发票号码是 8 位。边界理由同上。 */
+    private static final Pattern INVOICE_NO_8 =
+            Pattern.compile("(?<![0-9A-Za-z])(\\d{8})(?![0-9A-Za-z])");
+    /**
+     * 20 位发票号后面紧贴着 4 位开票年份。
+     *
+     * <p>逐字符排版的 PDF 拼接后，发票号和"2026"会粘成 24 位数字，
+     * 这时 20 位的正则就匹配不上了。中间补一个换行把它拆开。
+     * 正常排版的文本里号码和日期之间有换行，不会命中。
+     */
+    private static final Pattern GLUED_INVOICE_YEAR = Pattern.compile("(\\d{20})(20[2-9]\\d)");
     private static final Pattern DATE_CN =
             Pattern.compile("(\\d{4})\\s*年\\s*(\\d{1,2})\\s*月\\s*(\\d{1,2})\\s*日");
     private static final Pattern DATE_ISO =
@@ -62,13 +95,18 @@ public class InvoiceTextParser {
         List<String> warnings = new ArrayList<>();
         // 换行与不换行空格统一：不同 PDF、不同平台抽出来的文本可能带 \r\n 或 \u00A0，
         // 不归一的话 \r 会粘在抽出来的字段尾巴上（"某某大学\r" != "某某大学"）
-        String normalized = (text == null) ? ""
+        String raw = (text == null) ? ""
                 : text.replace("\r\n", "\n").replace('\r', '\n').replace('\u00A0', ' ');
 
-        if (normalized.isBlank()) {
+        if (raw.isBlank()) {
             return new ParsedInvoiceFields(null, null, null, null, null, null,
                     List.of("这份 PDF 里没有文字层（可能是拍的照片或扫描件），读不出内容，请手工填写金额"));
         }
+
+        // 先修版面，再拆粘连，最后才拿去匹配
+        final String normalized = GLUED_INVOICE_YEAR
+                .matcher(repairVerticalLayout(raw))
+                .replaceAll("$1\n$2");
 
         String invoiceNo = match(INVOICE_NO_20, normalized)
                 .or(() -> match(INVOICE_NO_8, normalized))
@@ -107,6 +145,41 @@ public class InvoiceTextParser {
         String itemSummary = matchItem(normalized);
 
         return new ParsedInvoiceFields(invoiceNo, date, amount, seller, buyer, itemSummary, warnings);
+    }
+
+    /**
+     * 版面修复：把"连续的单字符行"拼回一行。
+     *
+     * <p>针对每个字都独占一行的排版（见类注释）。只合并<b>长度为 1 的行</b>，
+     * 其余原样保留——正常排版的文本走一遍等于没动，所以不会影响已经能解析的票。
+     *
+     * <p>为什么敢这么合：单个字符单独成行本身没有语义，按顺序拼起来才恢复成
+     * "{@code 发票号码：}"、"{@code 壹佰肆拾玖圆整¥149.00}" 这些有意义的串。
+     *
+     * <p>副作用要说清楚：如果两列内容都被打散成单字符行，会被拼进同一行。
+     * 对"按形状取值"的抽取方式没有影响（我们不做位置判断），但会让人读着别扭——
+     * 反正这段文本只给正则用，不给人看。
+     */
+    private String repairVerticalLayout(String text) {
+        StringBuilder out = new StringBuilder(text.length());
+        StringBuilder run = new StringBuilder();
+
+        for (String line : text.split("\n", -1)) {
+            String trimmed = line.trim();
+            if (!trimmed.isEmpty() && trimmed.codePointCount(0, trimmed.length()) == 1) {
+                run.append(trimmed);
+                continue;
+            }
+            if (run.length() > 0) {
+                out.append(run).append('\n');
+                run.setLength(0);
+            }
+            out.append(line).append('\n');
+        }
+        if (run.length() > 0) {
+            out.append(run).append('\n');
+        }
+        return out.toString();
     }
 
     /**

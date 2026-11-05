@@ -61,16 +61,20 @@ public class PrecheckService {
                     Files.copy(in, temp, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                 }
 
-                InvoiceParseResult parsed = invoiceParser.parse(temp, "a" + index++);
-                Facts.Attachment attachment = withOriginalName(parsed.attachment(), fileName);
-                attachment = applyOverride(attachment, req, fileName);
+                // 一份 PDF 可能切出好几张发票（财务常把整月的票打成一个文件）
+                List<InvoiceParseResult> parsedList = invoiceParser.parseAll(temp, "a" + index++, fileName);
+                for (InvoiceParseResult parsed : parsedList) {
+                    Facts.Attachment attachment = applyOverride(parsed.attachment(), req);
+                    List<String> warnings = parsed.warnings().stream()
+                            .map(w -> attachment.fileName() + "：" + w)
+                            .toList();
 
-                parsed.warnings().forEach(w -> parseWarnings.add(fileName + "：" + w));
-                attachments.add(attachment);
-                views.add(new PrecheckResponse.AttachmentView(
-                        attachment.fileName(), attachment.kind(), attachment.invoiceNo(), attachment.amount(),
-                        attachment.date(), attachment.seller(),
-                        parsed.warnings().stream().map(w -> fileName + "：" + w).toList()));
+                    parseWarnings.addAll(warnings);
+                    attachments.add(attachment);
+                    views.add(new PrecheckResponse.AttachmentView(
+                            attachment.fileName(), attachment.kind(), attachment.invoiceNo(), attachment.amount(),
+                            attachment.date(), attachment.seller(), warnings));
+                }
             } catch (Exception e) {
                 parseWarnings.add(fileName + "：读取失败（" + e.getMessage() + "），请手工填写金额");
             } finally {
@@ -117,14 +121,16 @@ public class PrecheckService {
                 req.reason(), req.startDate(), req.endDate(), req.category());
     }
 
-    /** 解析器只知道临时文件的随机名，这里换回用户上传时的原始文件名，报告里才能指认。 */
-    private Facts.Attachment withOriginalName(Facts.Attachment a, String fileName) {
-        return a.withFileName(fileName);
-    }
-
-    private Facts.Attachment applyOverride(Facts.Attachment a, PrecheckRequest req, String fileName) {
+    /**
+     * 套用手工金额。
+     *
+     * <p>按<b>附件名</b>匹配，而附件名现在带页码（"报销单.pdf 第3页"）。
+     * 这就是切页之后把手工金额从"按文件"改成"按附件"的原因：
+     * 一个文件对应好几张发票，文件级的金额说不清在修哪一页。
+     */
+    private Facts.Attachment applyOverride(Facts.Attachment a, PrecheckRequest req) {
         BigDecimal manual = req.overrides().stream()
-                .filter(o -> o.fileName() != null && o.fileName().equals(fileName))
+                .filter(o -> o.fileName() != null && o.fileName().equals(a.fileName()))
                 .map(PrecheckRequest.FileOverride::amount)
                 .filter(v -> v != null)
                 .findFirst()

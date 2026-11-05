@@ -8,6 +8,7 @@ import java.io.File;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -32,7 +33,10 @@ class InvoiceParserRealPdfTest {
         Path pdf = Path.of(System.getProperty("invoice.sample", "samples/real-invoice.pdf"));
         assumeTrue(Files.exists(pdf), "没有指定真发票样本，跳过。用法：mvn test -Dinvoice.sample=发票.pdf");
 
-        InvoiceParseResult result = parser.parse(pdf, "a1");
+        List<InvoiceParseResult> results = parser.parseAll(pdf, "a1", pdf.getFileName().toString());
+        assertEquals(1, results.size(), "这是一张单页发票，应该只切出一份：" + results);
+
+        InvoiceParseResult result = results.get(0);
 
         System.out.println("解析结果：" + result.attachment());
         System.out.println("警告：" + result.warnings());
@@ -46,8 +50,9 @@ class InvoiceParserRealPdfTest {
     @Test
     @DisplayName("不存在的文件：返回警告而不是抛异常")
     void shouldNotThrowOnMissingFile() {
-        InvoiceParseResult result = parser.parse(Path.of("C:/不存在/的/文件.pdf"), "a9");
-        assertTrue(!result.warnings().isEmpty());
-        assertEquals(null, result.attachment().amount());
+        List<InvoiceParseResult> results = parser.parseAll(Path.of("C:/不存在/的/文件.pdf"), "a9", "坏文件.pdf");
+        assertEquals(1, results.size());
+        assertTrue(!results.get(0).warnings().isEmpty());
+        assertEquals(null, results.get(0).attachment().amount());
     }
 }

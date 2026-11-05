@@ -11,6 +11,7 @@ import java.time.LocalDate;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -87,5 +88,41 @@ class InvoiceTextParserTest {
         assertEquals("某某电子商务有限公司", f.seller());
         assertEquals("26942000000996000001", f.invoiceNo());
         assertEquals(0, new BigDecimal("149.00").compareTo(f.amount()));
+    }
+
+    @Test
+    @DisplayName("逐字符排版：每个字一行时，拼回一行照样能抽到号码/日期/金额")
+    void shouldRepairVerticalLayout() {
+        // 真实遇到的排版：开票系统把每个字符输出成独立文本块，
+        // 20 位发票号被打散成 20 行单个数字，\d{20} 永远匹配不到
+        String vertical = String.join("\n",
+                "发", "票", "号", "码", "：",
+                "2", "6", "9", "4", "2", "0", "0", "0", "0", "0",
+                "0", "9", "9", "6", "0", "0", "0", "0", "0", "1",
+                "2", "0", "2", "6", "年", "0", "9", "月", "0", "5", "日",
+                "壹", "佰", "肆", "拾", "玖", "圆", "整", "¥", "1", "4", "9", ".", "0", "0");
+
+        ParsedInvoiceFields f = parser.parse(vertical);
+
+        assertEquals("26942000000996000001", f.invoiceNo(), "警告：" + f.warnings());
+        assertEquals(LocalDate.of(2026, 9, 5), f.date(), "号码后面的年份不能被当成日期的一部分");
+        assertEquals(0, new BigDecimal("149.00").compareTo(f.amount()), "警告：" + f.warnings());
+    }
+
+    @Test
+    @DisplayName("纳税人识别号的前 8 位不能被当成 8 位发票号")
+    void taxIdPrefixShouldNotBeInvoiceNo() {
+        // 91370100MA3C… 是统一社会信用代码：前 8 位纯数字，后面跟字母。
+        // 边界写成"非数字"就会把它认成老版 8 位发票号——号码一错，查重和分组合并全乱。
+        String text = """
+                购买方信息
+                某某大学
+                91370100MA3C8XXXXX
+                价税合计 壹佰肆拾玖圆整 ¥149.00
+                """;
+
+        ParsedInvoiceFields f = parser.parse(text);
+
+        assertNull(f.invoiceNo(), "税号前缀不该被当成发票号，实际抽到：" + f.invoiceNo());
     }
 }
