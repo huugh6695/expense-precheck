@@ -28,3 +28,8 @@ precheck:
     api-key: ${PRECHECK_AI_KEY:}
     timeout-seconds: 20
 
+  ledger:
+    # 发票历史台账。只存发票号的 SHA-256（不存明文），用于跨申请查重。
+    # 相对路径按启动目录解析 —— 放在 jar 旁边，重启不丢，也不会被打进 jar 里。
+    file: data/invoice-ledger.json
+

@@ -416,8 +416,7 @@ function render(data) {
   });
 
   if (data.attachments && data.attachments.length) {
-    box.appendChild(el('div', 'group-title', '系统读到的发票'));
-    const table = el('table');
+    box.appendChild(el('div', 'group-title', '系统读到的发票'));    const table = el('table');
     table.innerHTML = '<thead><tr><th>文件</th><th>类型</th><th>发票号</th><th>金额</th><th>开票日期</th><th>开票方</th></tr></thead>';
     const tbody = el('tbody');
     data.attachments.forEach(a => {
@@ -437,6 +436,56 @@ function render(data) {
   if (data.parseWarnings && data.parseWarnings.length) {
     box.appendChild(el('div', 'group-title', '解析提示'));
     data.parseWarnings.forEach(w => box.appendChild(el('div', 'warn-note', '· ' + w)));
+  }
+
+  // 只有"没有必须补的问题"时才给写入台账的入口。
+  // 预检本身绝不写台账：员工会反复点「开始预检」，把检查当提交会让台账变成垃圾场。
+  if (data.passed) {
+    const row = el('div', 'actions');
+    const btn = el('button', 'btn btn-primary', '确认提交（记入台账）');
+    btn.onclick = () => commitLedger(btn, data);
+    row.appendChild(btn);
+    row.appendChild(el('span', 'hint', '记入后，这张票再被别人报销时会被查出来'));
+    box.appendChild(row);
+  }
+}
+
+/**
+ * 把本次预检通过的发票记入台账。
+ *
+ * 为什么必须由人点一下：预检是只读检查，员工可能反复点。
+ * 只有他自己确认"这份材料我要提交了"，才值得写进历史。
+ */
+async function commitLedger(btn, data) {
+  const items = (data.attachments || [])
+    .filter(a => a.invoiceNo)
+    .map(a => ({ invoiceNo: a.invoiceNo, amount: a.amount, invoiceDate: a.date }));
+
+  if (!items.length) {
+    btn.disabled = true;
+    btn.textContent = '没有可记入台账的发票号';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '写入中…';
+  try {
+    const res = await fetch('/api/ledger/commit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        applicant: document.getElementById('applicant').value.trim() || null,
+        items: items
+      })
+    });
+    if (!res.ok) throw new Error('服务返回 ' + res.status);
+    const r = await res.json();
+    btn.textContent = `已记入台账：新增 ${r.recorded} 张，已在台账 ${r.skipped} 张`
+      + (r.ignored ? `，${r.ignored} 张无发票号未记` : '');
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = '确认提交（记入台账）';
+    alert('记入台账失败：' + err.message);
   }
 }
 

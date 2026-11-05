@@ -2,6 +2,7 @@ package com.precheck.rule;
 
 import com.precheck.config.PrecheckRuleProperties;
 import com.precheck.facts.Facts;
+import com.precheck.ledger.InvoiceHistory;
 import com.precheck.rule.impl.DeclaredAmountRule;
 import com.precheck.rule.impl.DuplicateInvoiceRule;
 import com.precheck.rule.impl.InvoiceTotalRule;
@@ -33,7 +34,8 @@ class PrecheckEngineTest {
             new RequiredAttachmentRule(props),
             new DeclaredAmountRule(props),
             new InvoiceTotalRule(props),
-            new DuplicateInvoiceRule()
+            // 空台账：这个测试只关心"本次申请内部"的检查，历史台账单独测
+            new DuplicateInvoiceRule(InvoiceHistory.none())
     ));
 
     private Facts loadSample() {
