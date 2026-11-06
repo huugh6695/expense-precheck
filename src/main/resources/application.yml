@@ -33,3 +33,17 @@ precheck:
     # 相对路径按启动目录解析 —— 放在 jar 旁边，重启不丢，也不会被打进 jar 里。
     file: data/invoice-ledger.json
 
+  auth:
+    # 是否校验"上游 OA 传来的申请人签名"。
+    #
+    # ⚠️ 默认 false，只为了"克隆下来就能跑、能演示"。这个状态下申请人取自请求体，
+    #    员工可以随便填，历史台账记的也就不是可信的名字 —— 启动日志会打 WARN，页面顶部会挂横幅。
+    #
+    # ✅ 接入 OA / 生产环境必须改成 true，并用环境变量注入共享密钥：
+    #      PRECHECK_AUTH_SECRET=<与 OA 约定的密钥>
+    #    开着验签却没配 secret 会直接启动失败（宁可起不来，也不带着空密钥假装验过）。
+    enabled: false
+    secret: ${PRECHECK_AUTH_SECRET:}
+    # 时间戳允许的偏移（秒）。防止截获的请求头被无限重放，代价是两端时钟不能差太多。
+    tolerance-seconds: 300
+

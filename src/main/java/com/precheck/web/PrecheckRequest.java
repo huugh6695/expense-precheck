@@ -34,6 +34,18 @@ public record PrecheckRequest(
         exemptions = (exemptions == null) ? List.of() : List.copyOf(exemptions);
     }
 
+    /**
+     * 换一个申请人，其他字段不变。
+     *
+     * <p>用来把"请求体里自称的申请人"替换成"验签得到的可信申请人"。
+     * 为什么不直接信请求体：那是员工在自己电脑上填的，改个名字就能让 R5 的
+     * "这张票别人报过"失效。接入 OA 之后，姓名只能从签名里来。
+     */
+    public PrecheckRequest withApplicant(String verifiedApplicant) {
+        return new PrecheckRequest(type, verifiedApplicant, declaredAmount, reason, category,
+                startDate, endDate, lineItems, overrides, exemptions);
+    }
+
     /** 一条费用明细。 */
     public record LineItemReq(String desc, BigDecimal amount) {
     }

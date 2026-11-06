@@ -49,6 +49,9 @@ java -jar target/expense-precheck-0.0.1-SNAPSHOT.jar
 
 第一次用建议直接点页面上的 **「没有发票？载入样例数据」**——不用准备任何文件就能看到完整效果。
 
+> 默认是**本机演示模式**（不验签），所以页面顶部会挂一条橙色横幅，说明"申请人可自行填写、台账不可作为追责依据"。
+> 这不是出错，是诚实地告诉你当前状态。要接入 OA 见下面的「[接入 OA](#接入-oa让申请人真的可信)」。
+
 想启用 AI 语义检查（可选），先设置环境变量再启动：
 
 ```bash
@@ -219,9 +222,100 @@ precheck:
 
 ---
 
+## 接入 OA（让"申请人"真的可信）
+
+**为什么必须有这一节。** R5 判断"这张票是不是别人已经报过"，靠的是申请人这个名字。而这个项目一开始，名字就是页面上一个输入框：
+
+```html
+<input id="applicant" placeholder="例如：张三">
+```
+
+张三把名字改成李四再提交，R5 就形同虚设。这条规则当时只能拦住"自己忘了报过"，拦不住任何一个想重复报销的人——而防后者才是台账存在的理由。所以身份不能由员工自己声明，只能由上游 OA 带进来。
+
+### 三种运行模式
+
+| 模式 | `precheck.auth.enabled` | 申请人从哪来 | 台账可信吗 |
+|---|---|---|---|
+| 本机演示 | `false`（默认） | 页面输入框，谁都能改 | ❌ 启动日志 WARN + 页面顶部横幅明示 |
+| 接入 OA | `true` + 配 secret | 请求头里的签名，员工改不了 | ✅ |
+| 配错了 | `true` 但没配 secret | —— | 直接**启动失败**，不带病运行 |
+
+默认 `false` 是为了"克隆下来就能跑、能演示"。但**允许降级不等于允许默默降级**：关闭时日志打醒目 WARN，页面上挂橙色横幅，写明"台账记录不可作为追责依据"。
+
+### 请求头约定
+
+三个头，算法必须两端完全一致：
+
+```
+X-Precheck-Applicant : percent-encoding 后的姓名     张三 → %E5%BC%A0%E4%B8%89
+X-Precheck-Timestamp : UNIX 毫秒
+X-Precheck-Signature : HMAC-SHA256(secret, timestamp + "\n" + 原始姓名) 的十六进制小写
+```
+
+```python
+# Python
+name = "张三"
+ts = int(time.time() * 1000)
+sig = hmac.new(secret, f"{ts}\n{name}".encode(), hashlib.sha256).hexdigest()
+headers = {
+    "X-Precheck-Applicant": quote(name, safe=""),
+    "X-Precheck-Timestamp": str(ts),
+    "X-Precheck-Signature": sig,
+}
+```
+
+```javascript
+// 浏览器 / Node
+const ts = Date.now();
+const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${ts}\n${name}`));
+headers = { "X-Precheck-Applicant": encodeURIComponent(name), ... };
+```
+
+本地手工调接口不用自己算，仓库里带了个零依赖的小工具：
+
+```bash
+export PRECHECK_AUTH_SECRET=dev-secret-123
+python tools/sign.py 张三          # 打印三个头 + 一条可以直接复制运行的 curl
+python tools/sign.py 张三 --offset -600   # 把时间戳拨回 10 分钟，用来验证"过期拦截"
+```
+
+### 四个约定背后的坑（都是真撞上的）
+
+| 约定 | 不这么做会怎样 |
+|---|---|
+| **姓名必须 percent-encoding** | HTTP 头按规范是 ISO-8859-1，"张三" 的三个 UTF-8 字节到服务端被解成 `å¼ åä¸`，两边算的签名永远对不上。**这是接 OA 时第一个会撞上的坑** |
+| **签名算解码后的原名** | 如果算编码后的串，同一个字编成 `%E5` 和 `%e5` 会得出两个签名，莫名其妙的失败 |
+| **时间戳先进签名，再比时间窗** | 只比时间窗不签时间戳，攻击者可以随便改时间戳重置窗口 |
+| **比较用 `MessageDigest.isEqual`** | `String.equals` 一发现不同就返回，耗时会随"猜对前几位"变化，签名能被一位一位试出来（时序攻击） |
+
+### 验不过就整体拒绝，不降级
+
+没签名、签名错、超出 300 秒窗口、姓名和签名对不上——一律 **401**，一个字的预检结果都不给。
+
+不做"降级成身份未知照常预检"，是因为**台账的价值全在可信**。放行一次不可信的请求，台账里就多一条假名字的记录，而这条记录以后会拿去拦别人。一次妥协污染的是长期数据，比当场报错贵得多。
+
+验签通过后，**请求体里的 `applicant` 一律作废**，以签名里的为准：
+
+```bash
+# 签名身份=李四，请求体却写 applicant=张三
+curl -X POST .../api/ledger/commit -H 'X-Precheck-Applicant: %E6%9D%8E%E5%9B%9B' ... \
+  -d '{"applicant":"张三","items":[...]}'
+
+# 台账里记下来的是：  "applicant":"李四"
+```
+
+### 部署清单
+
+- [ ] `precheck.auth.enabled=true`
+- [ ] `PRECHECK_AUTH_SECRET=<随机字符串>` 用环境变量注入，**不要写进 application.yml 提交**
+- [ ] 两台机器的时钟同步（NTP）——偏移超过 `tolerance-seconds` 会全线 401
+- [ ] 反向代理不要把 `X-Precheck-*` 头吃掉（有些网关只透传白名单里的头）
+
+---
+
 ## 接口
 
-三个，够用。
+四个，够用。除 `/api/auth/status` 外，都要带验签请求头（开启验签时）。
 
 **`POST /api/precheck`** —— 提交预检（multipart）
 
@@ -241,6 +335,16 @@ precheck:
 
 返回 `{"recorded":1,"skipped":0,"ignored":0,"location":"…/data/invoice-ledger.json"}`：
 `recorded` 新记入、`skipped` 台账里已有、`ignored` 没有发票号记不了。
+
+开启验签时，这里的 `applicant` 会被签名里的身份覆盖（见上一节）。
+
+**`GET /api/auth/status`** —— 前端用来判断"现在验不验签"
+
+```json
+{"enabled": false}
+```
+
+`false` 时页面顶部会挂一条橙色横幅，写明台账记录不可作为追责依据。这个接口不含业务数据，所以不要求验签。
 
 返回结构：
 
@@ -276,11 +380,15 @@ src/main/java/com/precheck/
 ├── rule/           CheckRule 接口、Finding、Level、引擎、报告
 │   └── impl/       R2 / R3 / R4 / R5 / A1 五条规则
 ├── ledger/         发票历史台账：InvoiceHistory 接口 + JSON 文件实现
+├── auth/           验签：共享密钥 + 时间戳，决定"申请人可不可信"
 ├── ai/             AiClient 接口 + DeepSeek 实现（可替换）
 ├── config/         规则配置绑定（rules.yml）
 ├── support/        Money（金额必须从这里走）、LineItemMatcher（明细↔发票按金额配对）
 ├── service/        串起整条链路
-└── web/            三个接口 + 请求/响应模型
+└── web/            四个接口 + 请求/响应模型 + 拦截器注册
+
+tools/
+└── sign.py         生成验签请求头的零依赖小工具（手工调接口用）
 
 src/main/resources/
 ├── static/index.html   单页前端（原生 HTML + fetch，零构建）
@@ -301,6 +409,7 @@ src/main/resources/
 | PDF 文本抽取 | Apache PDFBox 3.0.5 |
 | JSON | Jackson 3（Boot 4 已内置） |
 | AI | DeepSeek（OpenAI 兼容接口），用 JDK 自带 HttpClient 直连 |
+| 身份验签 | JDK 自带 `javax.crypto.Mac`（HMAC-SHA256），**零新增依赖** |
 | 前端 | 原生 HTML + fetch，无框架无构建 |
 
 > 两个 Boot 4 的坑，抄网上代码时容易撞：
@@ -312,7 +421,7 @@ src/main/resources/
 ## 测试
 
 ```bash
-mvn test        # 64 个用例（其中一个真发票用例默认跳过，见下）
+mvn test        # 84 个用例（其中一个真发票用例默认跳过，见下）
 ```
 
 真发票的端到端用例不进仓库（含个人信息），默认跳过。想跑就指定一张自己的电子发票：
@@ -326,6 +435,7 @@ mvn test -Dinvoice.sample="C:/path/to/发票.pdf"
 - **AI 规则用"假模型"测**（`StubAi`），覆盖正常/可疑/代码块包裹/乱码/无响应/未配置六种返回，不联网、不花 token、结果稳定。
 - **真实 PDF 的测试用 `assumeTrue`**：本机有这张样例发票就跑，没有就跳过，换台机器不会因为"文件不存在"而失败。
 - **台账用真文件测**（`@TempDir`）：写入、重启后再读、明文不落盘，这几件事只有真落到磁盘上才能验证，"假文件系统"验证不了。
+- **验签按"攻击动作"测**：改名字、改时间戳、重放、大小写变换、编码截断、空密钥——每个用例都是一个绕过尝试，而不是"正常情况能不能过"。这类代码只看 happy path 等于没测。
 
 ---
 
@@ -340,7 +450,7 @@ mvn test -Dinvoice.sample="C:/path/to/发票.pdf"
 | 台账防不住改号重开 | 哈希只能证明"同一个号码又出现了"；改掉发票号重新开票查不出来，那需要对接税局查验接口 |
 | 台账是单机文件 | 一台机器一个文件，多实例部署要换成数据库实现（`InvoiceHistory` 换实现即可，规则层不用动） |
 | 没有历史统计 | 不留申请记录，无法统计"最常见的退单原因" |
-| 无登录与权限 | 预检只是提交前的一层检查，不需要用户体系 |
+| 有验签，但没有登录 | 共享密钥只能证明"请求来自 OA"，证明不了"是张三本人点的"。谁有权限在 OA 里代提交，得由 OA 管 |
 | 只做报销 | 采购、差旅申请、用章等场景未实现 |
 | 逐条配对只看金额 | 不看明细文字，所以"两条同样 450 元的明细对上一张 450 元的票"分不清是谁；不影响结论（差额一样），但会说不出是哪一条 |
 | 逐条配对只在总额不一致时用 | 总额一致时一律放行；因此"两条明细金额填反了但合计没错"这种情况查不出来（也不该拦，公司没损失） |
@@ -354,7 +464,8 @@ mvn test -Dinvoice.sample="C:/path/to/发票.pdf"
 - [ ] 对接税局发票查验接口（才能真正防住假票和改号重开）
 - [ ] 台账换成数据库 + 记录审批状态（退回后自动解除标记）
 - [ ] 规则热更新，改完不重启
-- [ ] 作为插件接入现有 OA，而不是替代它
+- [ ] 身份换成工号或账号（现在用姓名，重名就没辙）
+- [ ] 作为插件接入现有 OA 的完整流程（验签已做，还差 OA 侧的联调）
 
 ---
 

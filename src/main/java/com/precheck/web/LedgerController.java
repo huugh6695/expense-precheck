@@ -1,6 +1,8 @@
 package com.precheck.web;
 
+import com.precheck.auth.AuthInterceptor;
 import com.precheck.ledger.FileInvoiceHistory;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -24,7 +26,13 @@ public class LedgerController {
     }
 
     @PostMapping("/commit")
-    public LedgerCommitResponse commit(@RequestBody LedgerCommitRequest req) {
+    public LedgerCommitResponse commit(@RequestBody LedgerCommitRequest req, HttpServletRequest request) {
+
+        // 和预检接口同一个道理：验签通过时，台账里记的名字只能来自签名。
+        // 台账是"谁哪天报了哪张票"的长期记录，名字一旦可伪造，以后拿去拦别人的记录也就不可信了。
+        Object verified = request.getAttribute(AuthInterceptor.VERIFIED_APPLICANT);
+        String applicant = (verified instanceof String name) ? name : req.applicant();
+
         int recorded = 0;
         int skipped = 0;
         int ignored = 0;
@@ -35,7 +43,7 @@ public class LedgerController {
                 ignored++;
                 continue;
             }
-            boolean added = history.record(item.invoiceNo(), req.applicant(),
+            boolean added = history.record(item.invoiceNo(), applicant,
                     item.amount(), item.invoiceDate());
             if (added) {
                 recorded++;

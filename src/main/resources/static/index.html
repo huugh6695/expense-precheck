@@ -109,10 +109,24 @@
   .warn-note { color: var(--warn); font-size: 12px; }
   .empty { color: var(--muted); text-align: center; padding: 28px; font-size: 13px; }
   .foot { color: #98a2b3; font-size: 12px; margin-top: 28px; text-align: center; }
+
+  /* 验签关闭时的横幅：这件事必须刺眼，不能是一行小字 */
+  .auth-banner {
+    background: #fff4e5; border: 1px solid #ffcf8b; color: #8a4b00;
+    border-radius: 10px; padding: 12px 16px; font-size: 13px; line-height: 1.6;
+    margin-bottom: 18px;
+  }
+  .auth-banner strong { color: #b34700; }
+  .auth-ok {
+    background: #eef7ee; border: 1px solid #bfe0bf; color: #2f6b2f;
+    border-radius: 10px; padding: 10px 16px; font-size: 13px; margin-bottom: 18px;
+  }
 </style>
 </head>
 <body>
 <main>
+  <div id="authBanner"></div>
+
   <header>
     <h1>审批材料预检助手</h1>
     <p>提交前先过一遍：材料齐不齐、金额对不对、发票有没有重复。系统不决定能不能报，只保证交上去的材料是齐的。</p>
@@ -130,6 +144,7 @@
       <div>
         <label>申请人</label>
         <input id="applicant" placeholder="例如：张三">
+        <p class="warn-note" id="applicantHint" style="margin:4px 0 0"></p>
       </div>
       <div>
         <label>费用类别</label>
@@ -337,7 +352,7 @@ async function runPrecheck() {
     state.files.forEach(f => fd.append('files', f));
 
     const res = await fetch('/api/precheck', { method: 'POST', body: fd });
-    if (!res.ok) throw new Error('服务返回 ' + res.status);
+    await unwrap(res);
     render(await res.json());
     hint.textContent = '';
   } catch (err) {
@@ -352,7 +367,7 @@ async function loadSample() {
   hint.textContent = '载入样例…';
   try {
     const res = await fetch('/api/precheck/sample');
-    if (!res.ok) throw new Error('服务返回 ' + res.status);
+    await unwrap(res);
     const data = await res.json();
     fillSampleForm();
     render(data);
@@ -363,7 +378,11 @@ async function loadSample() {
 }
 
 function fillSampleForm() {
-  document.getElementById('applicant').value = '张三';
+  const applicant = document.getElementById('applicant');
+  // 接入 OA 时这一栏是只读的，别往里塞"张三" —— 否则看起来像系统认错了人
+  if (!applicant.readOnly) {
+    applicant.value = '张三';
+  }
   document.getElementById('category').value = '差旅';
   document.getElementById('declaredAmount').value = '1130.00';
   document.getElementById('reason').value = '赴杭州参加供应商年度评审会议';
@@ -502,7 +521,7 @@ async function commitLedger(btn, data) {
         items: items
       })
     });
-    if (!res.ok) throw new Error('服务返回 ' + res.status);
+    await unwrap(res);
     const r = await res.json();
     btn.textContent = `已记入台账：新增 ${r.recorded} 张，已在台账 ${r.skipped} 张`
       + (r.ignored ? `，${r.ignored} 张无发票号未记` : '');
@@ -515,6 +534,58 @@ async function commitLedger(btn, data) {
 
 addLineItem();
 syncExemption();
+initAuth();
+
+/**
+ * 问一句"现在验不验签"，然后决定页面长什么样。
+ *
+ * 关了验签的时候，申请人这一栏就是员工自己填的，台账里的名字也就不作数。
+ * 这件事必须摆在页面上最显眼的位置 —— 一份看起来正常、其实记着假名字的台账，
+ * 比直接报错危险得多。
+ */
+async function initAuth() {
+  const banner = document.getElementById('authBanner');
+  const input = document.getElementById('applicant');
+  const hint = document.getElementById('applicantHint');
+  try {
+    const res = await fetch('/api/auth/status');
+    if (!res.ok) throw new Error('status ' + res.status);
+    const { enabled } = await res.json();
+    if (enabled) {
+      // 接入 OA：姓名由系统带入，员工改不了
+      input.readOnly = true;
+      input.value = '';
+      input.placeholder = '由 OA 带入';
+      input.style.background = '#f5f6f8';
+      hint.textContent = '已接入 OA：申请人由系统带入，这里填什么都不生效。';
+      banner.className = 'auth-ok';
+      banner.textContent = '身份校验已开启：申请人由 OA 签名传入，历史台账记录可作为核对依据。';
+    } else {
+      banner.className = 'auth-banner';
+      banner.innerHTML = '<strong>本机演示模式：未启用身份校验。</strong>'
+        + '申请人是页面上自己填的，任何人都能改名后重报同一张发票；'
+        + '历史台账记录<strong>不可作为追责依据</strong>，跨申请查重在这里只是演示。'
+        + '接入 OA 时把 <code>precheck.auth.enabled</code> 设为 true 并配置共享密钥即可。';
+    }
+  } catch (err) {
+    banner.className = 'auth-banner';
+    banner.textContent = '无法确认身份校验状态（' + err.message + '），请刷新页面。';
+  }
+}
+
+/**
+ * 统一处理响应。401 单独拎出来：那是"身份没验过"，不该混在"服务返回 500"里，
+ * 员工看到"服务返回 401"完全不知道该干什么。
+ */
+async function unwrap(res) {
+  if (res.ok) return res;
+  if (res.status === 401) {
+    let reason = '';
+    try { reason = (await res.json()).reason || ''; } catch (_) { /* 响应体不是 JSON 就算了 */ }
+    throw new Error('身份校验未通过' + (reason ? '：' + reason : '') + '。请从 OA 重新进入本页面。');
+  }
+  throw new Error('服务返回 ' + res.status);
+}
 </script>
 </body>
 </html>

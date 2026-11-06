@@ -1,6 +1,8 @@
 package com.precheck.web;
 
+import com.precheck.auth.AuthInterceptor;
 import com.precheck.service.PrecheckService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -33,9 +35,15 @@ public class PrecheckController {
     @PostMapping(value = "/precheck", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public PrecheckResponse precheck(
             @RequestPart("payload") PrecheckRequest payload,
-            @RequestPart(value = "files", required = false) List<MultipartFile> files
+            @RequestPart(value = "files", required = false) List<MultipartFile> files,
+            HttpServletRequest request
     ) {
-        return service.precheck(payload, files == null ? List.of() : files);
+        // 验签通过时，申请人只能来自签名；请求体里那个值（员工自己在页面上填的）一律作废。
+        // 这是整条防线的落点——前面验了半天的签，如果最后还用 body 里的名字，等于白验。
+        Object verified = request.getAttribute(AuthInterceptor.VERIFIED_APPLICANT);
+        PrecheckRequest effective = (verified instanceof String name) ? payload.withApplicant(name) : payload;
+
+        return service.precheck(effective, files == null ? List.of() : files);
     }
 
     @GetMapping("/precheck/sample")
